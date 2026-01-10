@@ -13,6 +13,10 @@ MMSAM2 addresses the challenges of low-contrast boundaries and domain shifts by 
 - **Quality-aware Dynamic Memory Bank (DMB)**: Retrieves cross-sample prototypes to maintain consistency across diverse scenes.
 - **Dual-Path Decoder**: Fuses semantic priors with high-frequency structural cues via parameter-free late fusion.
 
+## Project Structure & Documentation
+
+For a detailed explanation of the function and role of each file in this project, including the core model implementation (`mmsam2.py`), training scripts (`train.py`), and evaluation tools, please refer to the [Code Explanation Document](CODE_EXPLANATION.md).
+
 ## Requirements
 
 Please configure the environment as follows:
