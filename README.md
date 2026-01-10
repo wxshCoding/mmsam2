@@ -15,7 +15,7 @@ MMSAM2 addresses the challenges of low-contrast boundaries and domain shifts by 
 
 ## Project Structure & Documentation
 
-For a detailed explanation of the function and role of each file in this project, including the core model implementation (`mmsam2.py`), training scripts (`train.py`), and evaluation tools, please refer to the [Code Explanation Document](CODE_EXPLANATION.md).
+For a detailed explanation of the function and role of each file in this project, including the core model implementation (`mmsam2.py`), training scripts (`train.py`), and evaluation tools, please refer to the [Code Explanation Document](CODE.md).
 
 ## Requirements
 
