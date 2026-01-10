@@ -55,7 +55,7 @@ parser.add_argument('--save_path', type=str, default='./logs', help="path to sto
 parser.add_argument("--epoch", type=int, default=500,  help="training epochs")
 parser.add_argument("--valid_interval", type=int, default=1,  help="training epochs")
 parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
-parser.add_argument("--batch_size", default=1, type=int)
+parser.add_argument("--batch_size", default=12, type=int)
 parser.add_argument("--weight_decay", default=5e-4, type=float)
 args = parser.parse_args()
 
