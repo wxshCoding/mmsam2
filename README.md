@@ -43,7 +43,7 @@ Please refer to the following repositories and their papers for the detailed con
 - Polyp Segmentation: [PraNet](https://github.com/DengPingFan/PraNet)
 
 ### Dataset Organization
-Ensure your datasets are organized in the `data/` directory. Each domain (Camouflaged, Marine, Polyp, Salient) should have a `train` folder (merged training set) and a `valid` folder (separate test datasets).
+Ensure your datasets are organized in the `data/` directory. Each domain (Camouflaged, Marine, Polyp) should have a `train` folder (merged training set) and a `valid` folder (separate test datasets).
 
 ```text
 data/
@@ -147,8 +147,6 @@ If you are interested in designing SAM2-based methods, the following papers may 
 [2025.02] [Fine-Tuning SAM2 for Generalizable Polyp Segmentation with a Channel Attention-Enhanced Decoder](https://ojs.sgsci.org/journals/amr/article/view/311)
 
 [2025.02] [FE-UNet: Frequency Domain Enhanced U-Net with Segment Anything Capability for Versatile Image Segmentation](https://arxiv.org/abs/2502.03829)
-
-[2025.01] [Progressive Self-Prompting Segment Anything Model for Salient Object Detection in Optical Remote Sensing Images](https://doi.org/10.3390/rs17020342)
 
 
 
