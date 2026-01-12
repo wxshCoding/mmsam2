@@ -29,6 +29,7 @@ conda install conda-forge::cudnn -y
 conda install pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.4 -c pytorch -c nvidia -y
 
 # Install SAM2
+git clone https://github.com/facebookresearch/sam2.git && cd sam2
 pip install -e .
 
 # Install dependencies
