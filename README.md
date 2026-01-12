@@ -109,14 +109,14 @@ Arguments:
 
 ## Testing & Evaluation
 
-Evaluation consists of two steps: generating predictions and calculating metrics. Scripts are located in the `eval/` folder, but should be run from the project root to resolve imports correctly.
+Evaluation consists of two steps: generating predictions and calculating metrics. Scripts are located in the `sh/eval/` folder, but should be run from the project root. Note that you may need to add the current directory to `PYTHONPATH` to resolve imports.
 
 ### 1. Generate Predictions
-Use `eval/test.py` to generate masks.
+Use `sh/eval/test.py` to generate masks.
 
 ```shell
 # Example: Testing on RMAS dataset
-python eval/test.py \
+PYTHONPATH=. python sh/eval/test.py \
   --checkpoint "logs/Marine/best.pth" \
   --test_image_path "./data/Marine/valid/RMAS/images/" \
   --test_gt_path "./data/Marine/valid/RMAS/masks/" \
@@ -124,18 +124,18 @@ python eval/test.py \
 ```
 
 ### 2. Calculate Metrics
-Use `eval.py` to calculate SOD metrics (Dice, IoU, etc.).
+Use `sh/eval/eval.py` to calculate SOD metrics (Dice, IoU, etc.).
 
 ```shell
 # Example: Evaluation for RMAS
-python eval.py \
+PYTHONPATH=. python sh/eval/eval.py \
   --dataset_name "RMAS" \
   --pred_path "./data/Marine/valid/RMAS/preds/" \
   --gt_path "./data/Marine/valid/RMAS/masks/"
 ```
 
 ### Automated Scripts
-You can refer to the shell scripts in `eval/` (e.g., [`eval/marine_auto.sh`](eval/marine_auto.sh)) for batch processing logic, but ensure paths to `test.py` and `eval.py` are correct relative to your working directory.
+You can refer to the shell scripts in `sh/eval/` (e.g., [`sh/eval/marine_auto.sh`](sh/eval/marine_auto.sh)) for batch processing logic, but ensure paths to `test.py` and `eval.py` are correct relative to your working directory.
 
 ## Other Interesting Works
 If you are interested in designing SAM2-based methods, the following papers may be helpful:
