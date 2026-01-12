@@ -25,6 +25,7 @@ Please configure the environment as follows:
 conda create -n py12 python=3.12 -y
 conda activate py12
 conda install nvidia/label/cuda-12.4.0::cuda -y
+conda install conda-forge::cudnn -y
 conda install pytorch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 pytorch-cuda=12.4 -c pytorch -c nvidia -y
 
 # Install SAM2
