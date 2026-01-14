@@ -19,7 +19,7 @@ For a detailed explanation of the function and role of each file in this project
 
 ## Requirements
 
-Please configure the environment as follows:
+Please configure the environment as follows (experiments run on an NVIDIA A30 GPU; other hardware environments may also work but have not been tested—theoretically feasible):
 
 ```shell
 conda create -n py12 python=3.12 -y
