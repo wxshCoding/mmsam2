@@ -111,6 +111,8 @@ Arguments:
 
 ## Testing & Evaluation
 
+> **Note:** We are currently uploading the weights to the cloud drive. Due to network speeds, this may take some time. You can use our provided weights or train from scratch.
+
 Evaluation consists of two steps: generating predictions and calculating metrics. Scripts are located in the `sh/eval/` folder, but should be run from the project root. Note that you may need to add the current directory to `PYTHONPATH` to resolve imports.
 
 ### 1. Generate Predictions
