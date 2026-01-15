@@ -111,7 +111,7 @@ Arguments:
 
 ## Testing & Evaluation
 
-> **Note:** We are currently uploading the weights to the cloud drive. Due to network speeds, this may take some time. You can use our provided weights or train from scratch.Pre-trained weights are available for download from [Google Drive](https://drive.google.com/drive/folders/1xJN-TZOs0UT3LwM_rw4OMOD9VXo15oNz?usp=drive_link). You can use our provided weights or train from scratch.
+> **Note:** We are currently uploading the weights to the cloud drive. Due to network speeds, this may take some time.Pre-trained weights are available for download from [Google Drive](https://drive.google.com/drive/folders/1xJN-TZOs0UT3LwM_rw4OMOD9VXo15oNz?usp=drive_link). You can use our provided weights or train from scratch.
 
 
 
