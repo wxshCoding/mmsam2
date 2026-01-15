@@ -111,7 +111,9 @@ Arguments:
 
 ## Testing & Evaluation
 
-> **Note:** We are currently uploading the weights to the cloud drive. Due to network speeds, this may take some time. You can use our provided weights or train from scratch.
+> **Note:** We are currently uploading the weights to the cloud drive. Due to network speeds, this may take some time. You can use our provided weights or train from scratch.Pre-trained weights are available for download from [Google Drive](https://drive.google.com/drive/folders/1xJN-TZOs0UT3LwM_rw4OMOD9VXo15oNz?usp=drive_link). You can use our provided weights or train from scratch.
+
+
 
 Evaluation consists of two steps: generating predictions and calculating metrics. Scripts are located in the `sh/eval/` folder, but should be run from the project root. Note that you may need to add the current directory to `PYTHONPATH` to resolve imports.
 
