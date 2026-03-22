@@ -11,7 +11,7 @@ This repository contains the official implementation of **MMSAM2**, a parameter-
 MMSAM2 addresses the challenges of low-contrast boundaries and domain shifts by integrating:
 - **Multi-Field Bottleneck Fusion (MFB)**: Decouples spatial frequencies via factorized large kernels to recover fine-grained details.
 - **Quality-aware Dynamic Memory Bank (DMB)**: Retrieves cross-sample prototypes to maintain consistency across diverse scenes.
-- **Dual-Path Decoder**: Fuses semantic priors with high-frequency structural cues via parameter-free late fusion.
+- **Dual-Path Decoder**: Fuses semantic representations with high-frequency structural cues via parameter-free late fusion.
 
 ## Project Structure & Documentation
 
