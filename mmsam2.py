@@ -1,17 +1,12 @@
 import torch
 import torch.nn as nn
+import numpy as np
 import torch.nn.functional as F
 from sam2.build_sam import build_sam2
 import math
-'''
-mmsam2.py
-功能：定义MMSAM2模型架构。
-主要作用：
-1. 构建基于SAM2的基础模型。
-2. 定义卷积模块（DoubleConv）和上采样模块（Up），用于构建改进的解码器或特征融合网络。
-3. 整合编码器和解码器部分，形成完整的图像分割/预测网络。
-'''
 from sam2.modeling.backbones.MFB import MFB_modified
+# from sam2.sam2_image_predictor import SAM2ImagePredictor
+
 
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
@@ -279,6 +274,7 @@ class DynamicMemoryBank():
         usage = torch.tensor([1.0 / (c + 1) for c in self.usage_counts], device=device)
         
         # Combine factors - higher score means more likely to remove
+        # removal_scores = 0.4 * uniqueness + 0.3 * age_factor + 0.3 * usage
         removal_scores = 0.6 * uniqueness + 0.2 * age_factor + 0.2 * usage
         return removal_scores
 
@@ -402,6 +398,8 @@ class MMSAM2(nn.Module):
         self.model.image_encoder.trunk.blocks = nn.Sequential(
             *blocks
         )
+
+
         # for param in self.model.image_encoder.trunk.blocks.parameters():
         #     param.requires_grad = True
         self.up1 = (Up(512, 256))#  与 yaml 中 d_model 相对应 128 = 64*2 
@@ -447,7 +445,8 @@ class MMSAM2(nn.Module):
                 for b in range(B):# 每个批次的当前特征都需要进行更新
                         # Retrieve relevant memories for this batch item
                         # retrieved_memories 取回的是topK相似的记忆库
-                        # 其中len(retrieved_memories[i]) ==  4 => 是 push 进去 4个元素
+                        # 其中len(retrieved_memories[i]) ==  4 => 是 push 进去 4个元素 ，为什么是取回4个最相似的
+                        #
                         retrieved_memories, similarities = self.memory_bank.retrieve(F.normalize(vision_feats_temp[b], p=2, dim=0),top_k=4)
                         if retrieved_memories:
                             # Apply attention weights based on similarity
@@ -458,7 +457,7 @@ class MMSAM2(nn.Module):
                                 to_cat_memory_pos_dynamic.append(pos_enc.cuda(non_blocking=True).flatten(2).permute(2, 0, 1))
                                 to_cat_image_embed_dynamic.append(image_emd.cuda(non_blocking=True))
 
-                memory_stack_ori = torch.stack(to_cat_memory_dynamic, dim=0) # 将所有的记忆库进行堆叠
+                memory_stack_ori = torch.stack(to_cat_memory_dynamic, dim=0) # 将4个选出最相似的记忆库进行堆叠
                 memory_pos_stack_ori = torch.stack(to_cat_memory_pos_dynamic, dim=0)
                 image_embed_stack_ori = torch.stack(to_cat_image_embed_dynamic, dim=0)
                 # vision_feats_temp 当前特征  memory_stack_ori 是记忆库中特征堆叠
@@ -586,25 +585,26 @@ class MMSAM2(nn.Module):
 
 
             # add single maskmem_features, maskmem_pos_enc, iou
-            if len(self.memory_bank.memories)== 0:
-                for batch in range(maskmem_features.size(0)):
-                    
-                    self.memory_bank.update(
-                                            (maskmem_features[batch].unsqueeze(0)).detach(),
-                                            (maskmem_pos_enc[batch].unsqueeze(0)).detach(),
-                                            iou_predictions[batch, 0],
-                                            image_embed[batch].reshape(-1).detach()
-                                        )
-            else:
-                for batch in range(maskmem_features.size(0)):
-
-                    push_maskmem_features = self.scale_factor*maskmem_features[batch].unsqueeze(0) + (1-self.scale_factor)*current_mm[batch]
-
-                    self.memory_bank.update(push_maskmem_features, # 更新输出由self.model._encode_new_memory
-                                            maskmem_pos_enc[batch].unsqueeze(0),
-                                            iou_predictions[batch, 0],
-                                            image_embed[batch].reshape(-1)
+            if self.training:
+                if len(self.memory_bank.memories)== 0:
+                    for batch in range(maskmem_features.size(0)):
+                        
+                        self.memory_bank.update(
+                                                (maskmem_features[batch].unsqueeze(0)).detach(),
+                                                (maskmem_pos_enc[batch].unsqueeze(0)).detach(),
+                                                iou_predictions[batch, 0],
+                                                image_embed[batch].reshape(-1).detach()
                                             )
+                else:
+                    for batch in range(maskmem_features.size(0)):
+
+                        push_maskmem_features = self.scale_factor*maskmem_features[batch].unsqueeze(0) + (1-self.scale_factor)*current_mm[batch]
+
+                        self.memory_bank.update(push_maskmem_features, # 更新输出由self.model._encode_new_memory
+                                                maskmem_pos_enc[batch].unsqueeze(0),
+                                                iou_predictions[batch, 0],
+                                                image_embed[batch].reshape(-1)
+                                                )
         # 内存机制的地方
         # 以下 x1 x2 x3 x4  需要相同的通道
         # 上采样的过程

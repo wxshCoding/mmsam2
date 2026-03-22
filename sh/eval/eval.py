@@ -2,14 +2,6 @@ import os
 import cv2
 import py_sod_metrics
 import argparse
-'''
-sh/eval/eval.py
-功能：模型性能评估脚本。
-主要作用：
-1. 读取模型预测的掩码结果和真实的Ground Truth掩码。
-2. 使用多种评估指标（如MAE, F-measure, S-measure, E-measure等）计算模型性能。
-3. 输出评估结果，用于量化分析模型效果。
-'''
 
 FM = py_sod_metrics.Fmeasure()
 WFM = py_sod_metrics.WeightedFmeasure()
