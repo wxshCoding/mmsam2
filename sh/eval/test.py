@@ -80,7 +80,7 @@ for i in range(test_loader.size):
         image, gt, name,click = test_loader.load_data()
         gt = np.asarray(gt, np.float32)
         image = image.to(device)
-        click = torch.from_numpy(click).float().to(device)
+        click = torch.zeros_like(torch.from_numpy(click)).float().to(device)
         res, _, _ = model(image,click.unsqueeze(0))
         # fix: duplicate sigmoid
         # res = torch.sigmoid(res)
