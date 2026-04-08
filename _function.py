@@ -3,14 +3,6 @@ from datetime import datetime
 import time
 import numpy as np
 import torch
-'''
-_function.py
-功能：提供训练和评估过程中的辅助函数。
-主要作用：
-1. 初始化评估指标（init_metrics），包括F-measure, S-measure, E-measure等。
-2. 提供保存检查点、调整学习率、模型验证等辅助功能（如果包含）。
-3. 封装与py_sod_metrics库的交互，用于计算显著性目标检测（SOD）相关的性能指标。
-'''
 from PIL import Image
 from torchvision import transforms
 import torch.nn.functional as F

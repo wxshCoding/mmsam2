@@ -31,9 +31,9 @@ model = MMSAM2().to(device)
 checkpoint = torch.load(args.checkpoint, map_location=device)
 
 if 'model_state_dict' in checkpoint:
-    missing_keys, unexpected_keys = model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+    missing_keys, unexpected_keys = model.load_state_dict(checkpoint['model_state_dict'], strict=False)
 else:
-    missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=True)
+    missing_keys, unexpected_keys = model.load_state_dict(checkpoint, strict=False)
 
 
 if 'memory_bank_state' in checkpoint:
@@ -76,10 +76,9 @@ for i in range(test_loader.size):
         image, gt, name,click = test_loader.load_data()
         gt = np.asarray(gt, np.float32)
         image = image.to(device)
-        # click = torch.from_numpy(click).float().to(device)
-        click = torch.zeros_like(torch.from_numpy(click)).float().to(device)
-        # 
-        res, _, _ = model(image,click.unsqueeze(0))
+        
+        # True Prompt-Free inference: pass click=None
+        res, _, _ = model(image, None)
         # fix: duplicate sigmoid
         # res = torch.sigmoid(res)
         res = F.upsample(res, size=gt.shape, mode='bilinear', align_corners=False)

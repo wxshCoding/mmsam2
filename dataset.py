@@ -2,13 +2,6 @@ import torchvision.transforms.functional as F
 import numpy as np
 import random
 import os
-'''
-dataset.py
-功能：定义数据加载和预处理类。
-主要作用：
-1. 提供Dataset类（如FullDataset_new, TestDataset等），用于读取图像和标签数据。
-2. 实现多种数据增强变换类（ToTensor, Resize, RandomHorizontalFlip, RandomVerticalFlip等），用于在训练过程中增强数据的多样性。
-'''
 from PIL import Image
 from torchvision.transforms import InterpolationMode
 from torch.utils.data import Dataset
@@ -137,9 +130,9 @@ class FullDataset_new(Dataset):
 class TestDataset(Dataset):
     def __init__(self, image_root, gt_root, size):
         self.images = [os.path.join(image_root,f) for f in os.listdir(image_root) if f.endswith('.jpg') or f.endswith('.png')]
-        self.gts = [os.path.join(gt_root,f) for f in os.listdir(gt_root) if f.endswith('.png')]
+        self.gts =    [os.path.join(gt_root   ,f) for f in os.listdir(gt_root   ) if f.endswith('.jpg') or f.endswith('.png')]
         self.images = sorted(self.images)
-        self.gts = sorted(self.gts)
+        self.gts    = sorted(self.gts)
         self.transform = transforms.Compose([
             transforms.Resize((size, size)),
             transforms.ToTensor(),

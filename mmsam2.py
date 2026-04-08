@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from sam2.build_sam import build_sam2
 import math
 from sam2.modeling.backbones.MFB import MFB_modified
+# from visualize_features import plot_feature_map
 # from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 
@@ -64,8 +65,16 @@ class Adapter(nn.Module):
             nn.GELU()
         )
 
+        # self.down_proj = nn.Linear(dim, 32)
+        # self.act = nn.GELU()
+        # self.up_proj = nn.Linear(32, dim)
+
+        # nn.init.zeros_(self.up_proj.weight)
+        # nn.init.zeros_(self.up_proj.bias)
+
     def forward(self, x):
         prompt = self.prompt_learn(x)
+        # prompt = self.up_proj(self.act(self.down_proj(x)))
         promped = x + prompt
         net = self.block(promped)
         return net
@@ -264,7 +273,8 @@ class DynamicMemoryBank():
         
         # Calculate uniqueness (low similarity to other memories is good to keep)
         sim_matrix.fill_diagonal_(0)  # Remove self-similarity
-        uniqueness = 1 - torch.mean(sim_matrix, dim=1)
+        # uniqueness = 1 - torch.mean(sim_matrix, dim=1)
+        uniqueness = torch.mean(sim_matrix, dim=1)
         
         # Age factor (newer is better to keep)
         max_time = float(self.current_time)
@@ -412,7 +422,11 @@ class MMSAM2(nn.Module):
         self.side2 = nn.Conv2d(256, 1, kernel_size=1)
         self.head = nn.Conv2d(256, 1, kernel_size=1)
 
-    def forward(self, x , click):
+        # 用于 Temperature Scaling 自适应对齐两个分支的 Logit 尺度
+        self.T1 = nn.Parameter(torch.ones(1))
+        self.T2 = nn.Parameter(torch.ones(1))
+
+    def forward(self, x, click=None):
         # backbone_out = self.image_encoder(x)
         backbone_out = self.model.forward_image(x) # net.forward_image(imgs)
         _, vision_feats, vision_pos_embeds, _ = self.model._prepare_backbone_features(backbone_out)
@@ -499,10 +513,18 @@ class MMSAM2(nn.Module):
         # 此处怎么解决
         '''prompt encoder'''         
         with torch.no_grad():
+            if click is None:
+                # Prompt-free branch: generate empty points to let SAM2 use its empty embeddings
+                B = x.size(0)
+                click_torch = torch.empty(B, 0, 2, dtype=torch.float, device=x.device)
+                click_label_torch = torch.empty(B, 0, dtype=torch.int, device=x.device)
+                click_points = (click_torch, click_label_torch)
+            else:
+                click_torch = torch.as_tensor(click, dtype=torch.float, device=x.device).unsqueeze(1)
+                # 使用输入的batch大小
+                click_label_torch = torch.ones((x.size(0), 1), dtype=torch.int, device=x.device)
+                click_points = (click_torch, click_label_torch)
 
-            click_torch = torch.as_tensor(click, dtype=torch.float, device=torch.device("cuda")).unsqueeze(1)
-            click_lable_torch = torch.as_tensor([1]*x.size(0), dtype=torch.int, device=torch.device("cuda")).view(-1, 1)
-            click_points=(click_torch, click_lable_torch)
             se, de = self.model.sam_prompt_encoder(  #point  prompt
                 points=click_points, #(coords_torch, labels_torch)
                 boxes=None,
@@ -614,7 +636,36 @@ class MMSAM2(nn.Module):
         out2 = F.interpolate(self.side2(x), scale_factor=8, mode='bilinear')
         x = self.up3(x, x1)
         out = F.interpolate(self.head(x), scale_factor=4, mode='bilinear')
-        pr =  (high_res_multimasks + out)/2
+
+
+
+        # 方案D 的核心：Learnable Temperature Scaling 动态对齐尺度
+        # 通过学习缩放标量 T1 和 T2，把二者投影到一致的校准分布面上，再进行稳定平均
+        pr = (high_res_multimasks / self.T1 + out / self.T2) / 2
+        
+        # if not self.training: # 只在测试/推理阶段画图
+        #     import os
+        #     if not hasattr(self, 'vis_counter'):
+        #         self.vis_counter = 0
+        #     os.makedirs('feature_vis', exist_ok=True)
+        #     try:
+        #         # 1. 可视化 MFB (Multi-Field Bottleneck) 提取后的多尺度丰富特征
+        #         plot_feature_map(current_mm[0], f'feature_vis/mfb_features_{self.vis_counter}.png', title="MFB Output")
+        #         # 2. 可视化 SAM2 的语义先验流 (Semantic Stream)
+        #         plot_feature_map(high_res_multimasks[0], f'feature_vis/sam2_semantic_stream_{self.vis_counter}.png', title="SAM2 Semantic Stream")
+        #         # 3. 可视化 UNet 的细节解码流 (Detail Stream)
+        #         plot_feature_map(out[0], f'feature_vis/unet_detail_stream_{self.vis_counter}.png', title="U-Net Detail Stream")
+        #         # 4. 可视化 DMB (Dynamic Memory Bank) 的交互增强特征
+        #         plot_feature_map(image_embed[0], f'feature_vis/dmb_features_{self.vis_counter}.png', title="DMB Output")
+
+        #         # ============= 👇新增这一行 👇=============
+        #         # 5. 可视化 SFG 的融合门控权重热力图 (W)
+        #         # gate_weight[0] 的形状是 [1, H, W]，plot_feature_map 会自动将其归一化并上色
+        #         plot_feature_map(gate_weight[0], f'feature_vis/sfg_gate_weight_{self.vis_counter}.png', title="Spatial Trust Gate Weight")
+        #         # ==========================================
+        #         self.vis_counter += 1
+        #     except Exception as e:
+        #         print(f"Failed to save feature map: {e}")
         # return out, out1, out2
         return pr, out1, out2
 
