@@ -141,7 +141,7 @@ Arguments:
 
 Pretrained DPSAM2 checkpoints are available from [Google Drive](https://drive.google.com/drive/folders/1xJN-TZOs0UT3LwM_rw4OMOD9VXo15oNz?usp=drive_link). Store downloaded files under `checkpoints/`.
 
-Use `evaluate_checkpoint.py` to evaluate a trained checkpoint independently of the training loop. The script builds the model, restores the model weights and serialized DMB state from `--checkpoint`, switches the model to evaluation mode, and runs inference without creating an optimizer or scheduler. No training update is performed, and no separate SAM2 backbone checkpoint is required. Evaluation currently requires a CUDA-capable GPU and uses full FP32 computation with autocast and TF32 disabled.
+Use `evaluate_checkpoint.py` to evaluate a trained checkpoint independently of the training loop. The script builds the model, restores the model weights and serialized DMB state from `--checkpoint`, switches the model to evaluation mode, and runs inference without creating an optimizer or scheduler. No training update is performed, and no separate SAM2 backbone checkpoint is required.
 
 ```shell
 # Example: evaluate a Polyp checkpoint with the task's default validation subsets
