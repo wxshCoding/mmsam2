@@ -11,7 +11,13 @@ import cv2
 from PIL import Image
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from dataset import FullDataset_new, FullDataset_new_bbox, collate_fn_multi_points, collate_fn_bbox
+from dataset import (
+    POINT_PROMPT_EVAL_POLICY,
+    FullDataset_new,
+    FullDataset_new_bbox,
+    collate_fn_multi_points,
+    collate_fn_bbox,
+)
 from mmsam2 import MMSAM2
 import _utils as ff
 
@@ -32,8 +38,10 @@ import _utils as ff
 # 2) 模型与恢复训练
 #    --hiera_path: SAM2 Hiera 预训练权重路径，用于初始化 MMSAM2 内部的 SAM2 主干。
 #    --resume_checkpoint/--checkpoint: 恢复训练用 checkpoint；会加载模型权重、optimizer、scheduler
-#        和保存的 epoch。DMB 记忆库默认清空重建，只有传入 --resume_memory_bank 才从 checkpoint 恢复。
-#    --resume_memory_bank: 显式恢复 checkpoint 中的 DMB；如果上次保存的 DMB 已污染，不要开启。
+#        和保存的 epoch。
+#    原说明（保留用于问题追踪）：DMB 默认清空，只有传入 --resume_memory_bank 才恢复。
+#    修改说明：DMB 参与 forward，resume 现在默认恢复 DMB；仅在明确需要重建时传入
+#        --no-resume_memory_bank。
 #    --save_path: 日志、checkpoint、验证预测结果的根目录。
 # 3) 训练日程与优化
 #    --epoch: 总训练 epoch 数；resume 时从 checkpoint 记录的下一轮继续直到该总数。
@@ -132,14 +140,22 @@ parser.add_argument(
     "--resume_checkpoint", "--checkpoint",
     dest="resume_checkpoint",
     type=str,
-    default="./checkpoints/polyp_184_2026_05_30_130702important.pth",
-    # default="logs/Polyp/2026_06_10_184930/checkpoints/polyp_206_2026_06_10_194732.pth",
+    # default="./checkpoints/polyp_184_2026_05_30_130702important.pth",
+    default="./logs/Polyp/2026_07_17_191049/checkpoints/polyp_192_2026_07_17_193055.pth",
+    # 原实现（保留用于问题追踪）：默认加载已确认受永久 autocast 缓存影响的 checkpoint。
+    # default="./logs/Polyp/2026_08_26_103624/checkpoints/polyp_187_2026_08_26_104243.pth",
+    # 修改原因：避免普通训练命令无意中恢复异常权重；需要恢复时必须显式传入 checkpoint。
     help="Resume training from checkpoint path (loads model and, when available, optimizer/scheduler/epoch).",
 )
 parser.add_argument(
     "--resume_memory_bank",
-    action="store_true",
-    help="Also restore DMB memory_bank_state from checkpoint. Leave off to rebuild DMB from current training data.",
+    # 原实现（保留用于问题追踪）：action="store_true" 令真正的 resume 默认清空 DMB。
+    # action="store_true",
+    # 修改原因：DMB 会直接参与 forward，完整恢复训练时必须默认恢复；如需清空可显式传入
+    # --no-resume_memory_bank。
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help="Restore DMB state by default; pass --no-resume_memory_bank to rebuild it from training data.",
 )
 # parser.add_argument(
 #     "--resume_checkpoint", "--checkpoint",
@@ -238,25 +254,37 @@ parser.add_argument(
     default="feature_vis",
     help="Directory used for saved feature visualization maps.",
 )
-args = parser.parse_args()
+# 原实现（保留用于问题追踪）：args = parser.parse_args()
+# 修改原因：train.py 需要被独立评估脚本安全导入，以复用 evaluate_valid_sets；参数解析
+# 移入函数后，import train 不再读取或抢占调用方的命令行参数。
+def parse_train_args(argv=None):
+    args = parser.parse_args(argv)
 
-# Resolve task config — CLI overrides take precedence over task defaults
-if args.task is not None:
-    cfg = TASK_CONFIGS[args.task]
-    if args.exp_name    is None: args.exp_name    = args.task
-    if args.data_path   is None: args.data_path   = cfg["data_path"]
-    if args.valid_list  is None: args.valid_list  = cfg["valid_list"]
-    if args.eval_script is None: args.eval_script = cfg["eval_script"]
-else:
-    # Backward-compatible defaults (Polyp) when no --task is given
-    if args.exp_name    is None: args.exp_name    = "Polyp"
-    if args.data_path   is None: args.data_path   = "../data/Polyp"
-    if args.valid_list  is None: args.valid_list  = ["CVC-300", "CVC-ClinicDB", "CVC-ColonDB", "ETIS-LaribPolypDB", "Kvasir"]
-    if args.eval_script is None: args.eval_script = "./polyp_auto.sh"
+    # Resolve task config — CLI overrides take precedence over task defaults
+    if args.task is not None:
+        cfg = TASK_CONFIGS[args.task]
+        if args.exp_name    is None: args.exp_name    = args.task
+        if args.data_path   is None: args.data_path   = cfg["data_path"]
+        if args.valid_list  is None: args.valid_list  = cfg["valid_list"]
+        if args.eval_script is None: args.eval_script = cfg["eval_script"]
+    else:
+        # Backward-compatible defaults (Polyp) when no --task is given
+        if args.exp_name    is None: args.exp_name    = "Polyp"
+        if args.data_path   is None: args.data_path   = "../data/Polyp"
+        if args.valid_list  is None: args.valid_list  = ["CVC-300", "CVC-ClinicDB", "CVC-ColonDB", "ETIS-LaribPolypDB", "Kvasir"]
+        if args.eval_script is None: args.eval_script = "./polyp_auto.sh"
+    return args
 
 def structure_loss(pred, mask):
+    # 修改原因：纯 FP32 方案下显式统一 pred/mask dtype，防止旧 checkpoint 或外部调用
+    # 传入低精度 tensor 后影响 loss 的数值稳定性。
+    pred = pred.float()
+    mask = mask.float()
     weit = 1 + 5*torch.abs(F.avg_pool2d(mask, kernel_size=31, stride=1, padding=15) - mask)
-    wbce = F.binary_cross_entropy_with_logits(pred, mask, reduce='none')
+    # 原实现（保留用于问题追踪）：
+    # wbce = F.binary_cross_entropy_with_logits(pred, mask, reduce='none')
+    # 修改原因：reduce 参数已弃用；reduction='none' 保持原计算语义并消除 PyTorch 警告。
+    wbce = F.binary_cross_entropy_with_logits(pred, mask, reduction='none')
     wbce = (weit*wbce).sum(dim=(2, 3)) / weit.sum(dim=(2, 3))
     pred = torch.sigmoid(pred)
     inter = ((pred * mask)*weit).sum(dim=(2, 3))
@@ -562,7 +590,21 @@ def _restore_memory_bank(model, memory_state, device, logger=None):
         device_memory = []
         for item in memory:
             if isinstance(item, torch.Tensor):
-                device_memory.append(torch.nan_to_num(item.to(device), nan=0.0, posinf=0.0, neginf=0.0).detach())
+                # 原实现（保留用于问题追踪）：
+                # device_memory.append(torch.nan_to_num(item.to(device), nan=0.0, posinf=0.0, neginf=0.0).detach())
+                # 修改原因：旧 checkpoint 的 DMB 可能以 BF16 保存；纯 FP32 方案恢复时将所有
+                # 浮点 memory tensor 转成 FP32，避免后续 attention 出现混合 dtype。
+                restored_item = item.to(device)
+                if restored_item.is_floating_point():
+                    restored_item = restored_item.float()
+                device_memory.append(
+                    torch.nan_to_num(
+                        restored_item,
+                        nan=0.0,
+                        posinf=0.0,
+                        neginf=0.0,
+                    ).detach()
+                )
             else:
                 device_memory.append(item)
         device_memories.append(device_memory)
@@ -573,27 +615,54 @@ def _restore_memory_bank(model, memory_state, device, logger=None):
     if dropped > 0:
         log_warn(f"[Resume] dropped invalid DMB memories: {dropped} / {len(memories)}")
 
-    # model.memory_bank.max_size = memory_state.get("max_size", model.memory_bank.max_size)
-    # model.memory_bank.min_size = memory_state.get("min_size", model.memory_bank.min_size)
-    model.memory_bank.min_size = 2
-    model.memory_bank.max_size = 4
+    # 原实现（保留用于问题追踪）：恢复时忽略 checkpoint 配置并强制改成 2/4。
+    # model.memory_bank.min_size = 2
+    # model.memory_bank.max_size = 4
+    # 修改原因：resume 必须还原保存时参与 forward 的完整 DMB 配置，否则即使模型权重一致，
+    # 重载后的计算图行为仍不等价。
+    model.memory_bank.max_size = memory_state.get("max_size", model.memory_bank.max_size)
+    model.memory_bank.min_size = memory_state.get("min_size", model.memory_bank.min_size)
 
-    # model.memory_bank.similarity_threshold = memory_state.get(
-    #     "similarity_threshold", model.memory_bank.similarity_threshold
-    # )
-    model.memory_bank.similarity_threshold = 0.45
+    # 原实现（保留用于问题追踪）：model.memory_bank.similarity_threshold = 0.45
+    # 修改原因：恢复 checkpoint 中实际使用的相似度阈值，保证 memory 更新策略连续。
+    model.memory_bank.similarity_threshold = memory_state.get(
+        "similarity_threshold", model.memory_bank.similarity_threshold
+    )
     model.memory_bank.decay_factor = memory_state.get("decay_factor", model.memory_bank.decay_factor)
     model.memory_bank.usage_counts = device_usage_counts
     model.memory_bank.timestamps = device_timestamps
     model.memory_bank.current_time = memory_state.get("current_time", 0)
 
 
-def load_training_checkpoint(model, checkpoint_path, device, optimizer=None, scheduler=None, logger=None, resume_memory_bank=False):
+# 原实现（保留用于问题追踪）：
+# def load_training_checkpoint(model, checkpoint_path, device, optimizer=None, scheduler=None, logger=None, resume_memory_bank=False):
+# 修改原因：函数语义是“恢复训练”，直接调用时也应默认恢复参与 forward 的 DMB 状态。
+def load_training_checkpoint(model, checkpoint_path, device, optimizer=None, scheduler=None, logger=None, resume_memory_bank=True):
     log = logger.info if logger is not None else print
     log_warn = logger.warning if logger is not None else print
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # 原实现（保留用于问题追踪）：checkpoint = torch.load(checkpoint_path, map_location=device)
+    # 修改原因：本项目 checkpoint 只包含 tensor 和基础容器，使用 weights_only=True 可避免
+    # 反序列化任意 Python 对象，同时消除新版 PyTorch 对默认 pickle 加载方式的警告。
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     start_epoch = 0
+
+    # 修改原因：point 指标还取决于验证点生成协议。新 checkpoint 必须使用相同协议；
+    # 旧 checkpoint 没有该字段时允许评估，但提示其历史 point 指标可能不可直接对比。
+    saved_evaluation_policy = (
+        checkpoint.get("evaluation_policy", {}) if isinstance(checkpoint, dict) else {}
+    )
+    saved_point_policy = saved_evaluation_policy.get("point_prompt")
+    if saved_point_policy is None:
+        log_warn(
+            "[Resume] checkpoint has no point-prompt evaluation policy; current evaluation uses "
+            f"{POINT_PROMPT_EVAL_POLICY}. Historical point metrics may differ."
+        )
+    elif saved_point_policy != POINT_PROMPT_EVAL_POLICY:
+        raise RuntimeError(
+            "Checkpoint point-prompt evaluation policy mismatch: "
+            f"checkpoint={saved_point_policy!r}, current={POINT_PROMPT_EVAL_POLICY!r}"
+        )
 
     # 1) Model weights
     if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
@@ -604,6 +673,11 @@ def load_training_checkpoint(model, checkpoint_path, device, optimizer=None, sch
         log_warn(f"[Resume] missing keys: {len(missing_keys)}")
     if unexpected_keys:
         log_warn(f"[Resume] unexpected keys: {len(unexpected_keys)}")
+
+    # 原实现（保留用于问题追踪）：纯 FP32 方案不再创建 autocast 权重缓存。
+    # if device.type == "cuda":
+    #     torch.clear_autocast_cache()
+    # 修改原因：当前训练、验证和测试均不进入 autocast，因此不再需要维护或清理其缓存。
 
     # 2) Memory bank
     if resume_memory_bank and isinstance(checkpoint, dict) and "memory_bank_state" in checkpoint:
@@ -713,7 +787,24 @@ def evaluate_metrics(
                 sample_name = f"{feature_vis_prefix}_{sample_name}"
             batch_names.append(sample_name)
 
-        pred, _, _, high_res_multimasks = model(x, prompt, image_names=batch_names, epoch=epoch)
+        # 原实现（保留用于问题追踪）：
+        # pred, _, _, high_res_multimasks = model(x, prompt, image_names=batch_names, epoch=epoch)
+        # 上一版修复（保留用于方案追踪）：使用有边界的 BF16 autocast。
+        # with torch.autocast(
+        #     device_type=device.type,
+        #     dtype=torch.bfloat16,
+        #     enabled=device.type == "cuda",
+        # ):
+        #     pred, _, _, high_res_multimasks = model(
+        #         x, prompt, image_names=batch_names, epoch=epoch
+        #     )
+        # 修改原因：按当前要求完全禁用 autocast，验证 forward 直接使用 FP32。
+        pred, _, _, high_res_multimasks = model(
+            x,
+            prompt,
+            image_names=batch_names,
+            epoch=epoch,
+        )
         fusion_stats = getattr(model, "last_fusion_stats", {})
         for key in FUSION_STAT_NAMES:
             value = fusion_stats.get(key)
@@ -1077,6 +1168,16 @@ def main(args):
                     current_click = (point, point_label) if point_label is not None else point
                 
             optim.zero_grad()
+            # 原实现（保留用于问题追踪）：forward 依赖 MMSAM2.__init__ 中永久开启的 autocast。
+            # pred0, pred1, pred2, sam_pred = model(x, current_click)
+            # 上一版修复（保留用于方案追踪）：使用有边界的 BF16 autocast。
+            # with torch.autocast(
+            #     device_type=device.type,
+            #     dtype=torch.bfloat16,
+            #     enabled=device.type == "cuda",
+            # ):
+            #     pred0, pred1, pred2, sam_pred = model(x, current_click)
+            # 修改原因：按当前要求完全禁用 autocast，训练 forward 与 loss 全程使用 FP32。
             pred0, pred1, pred2, sam_pred = model(x, current_click)
             loss_fuse = structure_loss(pred0, target)
             loss_sam = structure_loss(sam_pred, target)
@@ -1127,7 +1228,11 @@ def main(args):
                 'memory_bank_state': memory_bank_state,
                 'optimizer_state_dict': optim.state_dict(),
                 'scheduler_state_dict': scheduler.state_dict(),
-                'epoch': epoch
+                'epoch': epoch,
+                # 修改原因：记录确定性的验证点生成协议，使独立评估可核验 point 指标口径。
+                'evaluation_policy': {
+                    'point_prompt': POINT_PROMPT_EVAL_POLICY,
+                },
             }
             torch.save(checkpoint, ckpt_path)
             
@@ -1166,6 +1271,9 @@ def seed_torch(seed=1024):
 	torch.backends.cudnn.deterministic = True
 
 if __name__ == "__main__":
+    # 修改原因：仅直接执行 train.py 时解析训练参数；被 evaluate_checkpoint.py 导入时
+    # 不产生 argparse 副作用。
+    args = parse_train_args()
     if args.seed is not None:
         seed_torch(args.seed)
     main(args)

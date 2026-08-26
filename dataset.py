@@ -11,6 +11,9 @@ from torchvision import transforms
 from PIL import Image
 
 
+POINT_PROMPT_EVAL_POLICY = "component_center_v1"
+
+
 class ToTensor(object):
 
     def __call__(self, data):
@@ -167,7 +170,24 @@ class FullDataset_new(Dataset):
             data = {'image': image, 'label': label}
             data = self.transform(data)
             mask_click  = data["label"].clone()
-            point_label, pt_cup = self.random_click_per_region(np.array(mask_click).squeeze(0), point_label = 1)
+            # 原实现（保留用于问题追踪）：训练和验证都使用随机前景点。
+            # point_label, pt_cup = self.random_click_per_region(
+            #     np.array(mask_click).squeeze(0), point_label=1
+            # )
+            if self.mode == 'train':
+                # 原实现继续用于训练：随机点是数据增强的一部分。
+                point_label, pt_cup = self.random_click_per_region(
+                    np.array(mask_click).squeeze(0),
+                    point_label=1,
+                )
+            else:
+                # 修改原因：验证点若依赖全局 NumPy RNG，训练进程和独立加载进程消耗的
+                # 随机数不同，会导致同一权重的 point 指标漂移。验证改为每个连通域选择
+                # 最接近几何中心的前景像素，保证按样本完全确定。
+                point_label, pt_cup = self.deterministic_click_per_region(
+                    np.array(mask_click).squeeze(0),
+                    point_label=1,
+                )
             data["point"] = pt_cup
             data["point_label"] = point_label
             return data
@@ -236,6 +256,39 @@ class FullDataset_new(Dataset):
       
     def random_click(self , mask, point_label = 1):
         return self.random_click_per_region(mask, point_label)
+
+    @staticmethod
+    def deterministic_click_per_region(mask, point_label=1):
+        """Select one deterministic center-nearest pixel from every component."""
+        mask = np.asarray(mask)
+        fg_mask = mask > 0.5
+
+        def center_nearest(indices):
+            center = indices.astype(np.float64).mean(axis=0, keepdims=True)
+            distances = np.square(indices - center).sum(axis=1)
+            return indices[int(np.argmin(distances))]
+
+        if not np.any(fg_mask):
+            background = np.argwhere(~fg_mask)
+            if len(background) == 0:
+                background = np.argwhere(np.ones_like(mask, dtype=bool))
+            point = center_nearest(background)
+            return np.array([0], dtype=np.int64), np.array([point], dtype=np.int64)
+
+        structure = np.ones((3, 3), dtype=np.int8)
+        labeled_array, num_features = ndimage.label(fg_mask, structure=structure)
+        points = []
+        for region_id in range(1, num_features + 1):
+            region_indices = np.argwhere(labeled_array == region_id)
+            if len(region_indices) > 0:
+                points.append(center_nearest(region_indices))
+
+        if not points:
+            points.append(center_nearest(np.argwhere(fg_mask)))
+
+        points = np.asarray(points, dtype=np.int64)
+        labels = np.full((points.shape[0],), point_label, dtype=np.int64)
+        return labels, points
     
           
 

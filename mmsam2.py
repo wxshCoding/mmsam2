@@ -369,10 +369,20 @@ class MMSAM2(nn.Module):
     def __init__(self, checkpoint_path=None, feature_vis_enabled=False, feature_vis_dir="feature_vis") -> None:
         super(MMSAM2, self).__init__()
         # SAM2 推理开启了 bfloat16 + TF32，GPU 上会有非确定性的结果，训练时也会有一定程度的非确定性（尤其是小批量），但可以通过设置随机种子和一些环境变量来尽量减少这种非确定性。
-        torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
+        # 原实现（保留用于问题追踪）：永久进入 autocast，且没有对应的 __exit__。
+        # torch.autocast(device_type="cuda", dtype=torch.bfloat16).__enter__()
+        # 修改原因：永久 autocast 会让 BF16 权重缓存跨 optimizer.step 存活；运行中的
+        # forward 可能使用旧缓存，而 state_dict() 保存的是已更新的 FP32 master weights，
+        # 最终造成“保存前指标正常、重新加载后输出爆炸”。当前方案完全禁用 autocast，
+        # 模型、loss 和 DMB 统一使用 FP32。
         if torch.cuda.get_device_properties(0).major >= 8:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True    
+            # 原实现（保留用于问题追踪）：
+            # torch.backends.cuda.matmul.allow_tf32 = True
+            # torch.backends.cudnn.allow_tf32 = True
+            # 修改原因：TF32 虽不属于 autocast，但矩阵乘法会采用截短尾数；纯 FP32 方案下
+            # 同时关闭 TF32，确保保存前后及不同运行进程使用一致的 FP32 数值路径。
+            torch.backends.cuda.matmul.allow_tf32 = False
+            torch.backends.cudnn.allow_tf32 = False
         model_cfg = "sam2_hiera_l.yaml"
         if checkpoint_path:
             self.model = build_sam2(model_cfg, checkpoint_path)
@@ -773,7 +783,18 @@ class MMSAM2(nn.Module):
 
                     similarity_scores = self._safe_probabilities(similarity_scores, dim=1)
                     #采样函数，从挑出的最相似的特种中再次进行采样
-                    sampled_indices = torch.multinomial(similarity_scores, num_samples=B, replacement=True).squeeze(1)
+                    # 原实现（保留用于问题追踪）：eval 阶段也随机采样，导致相同 checkpoint 的指标波动。
+                    # sampled_indices = torch.multinomial(similarity_scores, num_samples=B, replacement=True).squeeze(1)
+                    # 修改原因：训练阶段保留随机采样；验证/推理阶段固定选择最高相似度 memory，
+                    # 使 checkpoint 重载前后的对照可复现。
+                    if self.training:
+                        sampled_indices = torch.multinomial(
+                            similarity_scores,
+                            num_samples=B,
+                            replacement=True,
+                        ).squeeze(1)
+                    else:
+                        sampled_indices = torch.argmax(similarity_scores, dim=1)
 
                     memory_stack_ori_new = (memory_stack_ori[sampled_indices].squeeze(3).permute(1, 2, 0, 3))
                     memory = memory_stack_ori_new.reshape(-1, memory_stack_ori_new.size(2), memory_stack_ori_new.size(3))
@@ -1082,9 +1103,14 @@ class MMSAM2(nn.Module):
             # current_mm  =  maskmem_features_mfb
             current_mm  =  maskmem_features
 
-            maskmem_features = maskmem_features.to(torch.bfloat16)
+            # 原实现（保留用于问题追踪）：maskmem_features = maskmem_features.to(torch.bfloat16)
+            # 修改原因：完全禁用 autocast 后，DMB 特征也必须保持 FP32，避免 memory attention
+            # 混用 BF16 memory 与 FP32 current features。
+            maskmem_features = maskmem_features.float()
             maskmem_features = maskmem_features.to(device=torch.device("cuda"), non_blocking=True)
-            maskmem_pos_enc = maskmem_pos_enc[0].to(torch.bfloat16)
+            # 原实现（保留用于问题追踪）：maskmem_pos_enc = maskmem_pos_enc[0].to(torch.bfloat16)
+            # 修改原因：位置编码与 DMB 特征保持相同的 FP32 dtype。
+            maskmem_pos_enc = maskmem_pos_enc[0].float()
             maskmem_pos_enc = maskmem_pos_enc.to(device=torch.device("cuda"), non_blocking=True)
 
 
