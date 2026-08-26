@@ -141,30 +141,25 @@ Arguments:
 
 Pretrained DPSAM2 checkpoints are available from [Google Drive](https://drive.google.com/drive/folders/1xJN-TZOs0UT3LwM_rw4OMOD9VXo15oNz?usp=drive_link). Store downloaded files under `checkpoints/`.
 
-Each checkpoint saved by `train.py` contains both model weights and the serialized DMB state:
+Use `evaluate_checkpoint.py` to evaluate a trained checkpoint independently of the training loop. The script builds the model, restores the model weights and serialized DMB state from `--checkpoint`, switches the model to evaluation mode, and runs inference without creating an optimizer or scheduler. No training update is performed, and no separate SAM2 backbone checkpoint is required. Evaluation currently requires a CUDA-capable GPU and uses full FP32 computation with autocast and TF32 disabled.
 
-```text
-checkpoint.pth
-├── model_state_dict
-├── memory_bank_state
-│   ├── memories
-│   ├── max_size
-│   ├── min_size
-│   ├── similarity_threshold
-│   ├── decay_factor
-│   ├── usage_counts
-│   ├── timestamps
-│   └── current_time
-├── optimizer_state_dict
-├── scheduler_state_dict
-└── epoch
+```shell
+# Example: evaluate a Polyp checkpoint with the task's default validation subsets
+python evaluate_checkpoint.py \
+  --checkpoint ./checkpoints/Polyp.pth \
+  --task Polyp \
+  --data_path ./data/Polyp
 ```
 
-During validation, `train.py` reports three modes: point prompt, box prompt, and without prompt. The manuscript tables use the prompt-free results, reported in the logs as `WITHOUT PROMPT`. If `--save_predictions` is set, the evaluation code also writes prediction files below the corresponding run directory.
+`--task` selects the dataset root and validation subsets defined in `TASK_CONFIGS` in `train.py`. Supported values are `Polyp`, `Marine`, `Camouflaged`, and `Salient`. Use `--data_path` when the local dataset root differs from the task default, and use `--valid_list` to evaluate only selected subsets:
 
-4. Repeat the command with `--task Polyp --data_path ./data/Polyp` and `--task Camouflaged --data_path ./data/Camouflaged`.
-5. Read the `WITHOUT PROMPT` validation blocks from each run log. Average the four seed results for each dataset and report the sample standard deviation, matching the manuscript tables.
-<!-- 6. Use `scripts/parse_eval_log.py` or `scripts/find_best_metric_epochs.py` to parse long logs when needed. -->
+```shell
+python evaluate_checkpoint.py \
+  --checkpoint ./checkpoints/Polyp.pth \
+  --task Polyp \
+  --data_path ./data/Polyp \
+  --valid_list Kvasir ETIS-LaribPolypDB CVC-300 CVC-ClinicDB
+```
 
 ## Dataset Cards
 
